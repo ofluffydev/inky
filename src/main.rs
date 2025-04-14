@@ -72,7 +72,7 @@ fn main() -> ! {
 
     let epd_dc_pin = Mutex::new(pins.gpio8.into_push_pull_output());
     let epd_rst_pin = Mutex::new(pins.gpio12.into_push_pull_output());
-    let epd_busy_pin = Mutex::new(pins.gpio13.into_push_pull_output());
+    let epd_busy_pin = Mutex::new(pins.gpio13.into_floating_input());
     let epd_cs_pin = Mutex::new(pins.gpio9.into_push_pull_output());
     let heartbeat = Mutex::new(pins.gpio1.into_push_pull_output());
 
@@ -99,14 +99,15 @@ fn main() -> ! {
         spi_bus_mutex,
     );
     display.heartbeat.lock().set_high().unwrap();
-    display.reset(); // Reset the display (Required on startups)
+    display.init_fast(); // Reset and init the display (Required on startups)
     display.clear(); // Clear the display
+
+    display.test(); // Call the test function
 
     let mut heartbeat = display.heartbeat.lock();
     loop {
         heartbeat.set_high().unwrap();
         timer.delay_ms(500);
-        display.clear();
         heartbeat.set_low().unwrap();
         timer.delay_ms(500);
     }

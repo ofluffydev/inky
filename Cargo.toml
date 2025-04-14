@@ -11,8 +11,10 @@ defmt = "1.0.1"
 defmt-rtt = "1.0.0"
 embedded-hal = "1.0.0"
 embedded-time = "0.12.1"
+lazy_static = { version = "1.5.0", features = ["spin_no_std"] }
 once_cell = { version = "1.21.3", default-features = false, features = ["critical-section"] }
 panic-halt = "1.0.0"
+portable-dlmalloc = { version = "1.2.0", default-features = false }
 rp235x-hal = { version = "0.3.0", features = ["critical-section-impl", "defmt"] }
 spin = "0.10.0"
 
