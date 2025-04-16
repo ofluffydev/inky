@@ -13,6 +13,7 @@
     BUSY 	    GP13 	        Busy output pin
 */
 
+
 use hal::{
     Timer,
     binary_info::{
@@ -74,7 +75,7 @@ fn main() -> ! {
     let epd_rst_pin = Mutex::new(pins.gpio12.into_push_pull_output());
     let epd_busy_pin = Mutex::new(pins.gpio13.into_floating_input());
     let epd_cs_pin = Mutex::new(pins.gpio9.into_push_pull_output());
-    let heartbeat = Mutex::new(pins.gpio1.into_push_pull_output());
+    // let heartbeat = Mutex::new(pins.gpio1.into_push_pull_output());
 
     // The e-ink does not use MISO
     let spi_mosi = pins.gpio11.into_function::<hal::gpio::FunctionSpi>();
@@ -84,33 +85,44 @@ fn main() -> ! {
     let spi_bus = spi_bus.init(
         &mut pac.RESETS,
         clocks.peripheral_clock.freq(),
-        10u32.MHz(),
+        4u32.MHz(),
         embedded_hal::spi::MODE_0,
     );
 
     let spi_bus_mutex = Mutex::new(spi_bus);
+
+    epd_cs_pin.lock().set_high().unwrap();
 
     let display = Epd2in13V4::new(
         epd_dc_pin,
         epd_rst_pin,
         epd_busy_pin,
         epd_cs_pin,
-        heartbeat,
+        None,
         spi_bus_mutex,
     );
-    display.heartbeat.lock().set_high().unwrap();
+    // display.heartbeat.lock().set_high().unwrap();
+    display.init();
     display.init_fast(); // Reset and init the display (Required on startups)
     display.clear(); // Clear the display
-
     display.test(); // Call the test function
+    timer.delay_ms(1000); // Wait for 1 second
 
-    let mut heartbeat = display.heartbeat.lock();
-    loop {
-        heartbeat.set_high().unwrap();
-        timer.delay_ms(500);
-        heartbeat.set_low().unwrap();
-        timer.delay_ms(500);
-    }
+    // let mut heartbeat = display.heartbeat.lock();
+    // loop {
+    //     display.show_bk1();
+    //     timer.delay_ms(500);
+    //     display.show_bk2();
+    //     timer.delay_ms(500);
+    //     display.show_bk3();
+    //     timer.delay_ms(500);
+    //     display.show_bk4();
+    //     timer.delay_ms(500);
+    // }
+
+    display.show_toaster();
+
+    loop {}
 }
 
 /// Program metadata for `picotool info`

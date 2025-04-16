@@ -4,18 +4,16 @@
 const EPD_2IN13_V4_WIDTH: usize = 122;
 const EPD_2IN13_V4_HEIGHT: usize = 250;
 
-const BYTES_PER_LINE: usize = (EPD_2IN13_V4_WIDTH + 7) / 8;
-const FRAMEBUFFER_SIZE: usize = BYTES_PER_LINE * EPD_2IN13_V4_HEIGHT;
+// const BYTES_PER_LINE: usize = (EPD_2IN13_V4_WIDTH + 7) / 8;
+const FRAMEBUFFER_SIZE: usize = ((EPD_2IN13_V4_WIDTH + 7) / 8) * EPD_2IN13_V4_HEIGHT;
 
 use embedded_hal::{
     delay::DelayNs,
     digital::{InputPin, OutputPin},
     spi::SpiBus,
 };
-use paint::{
-    Paint,
-    Rotation::{Rotate0, Rotate90},
-};
+use image_data::{BOYKISSER1, BOYKISSER2, BOYKISSER3, BOYKISSER4, G_IMAGE_2IN13_2, ROOSTER}; // Import the BOYKISSER image
+use paint::{Paint, Rotation::Rotate0};
 use rp235x_hal::{
     Spi,
     gpio::{
@@ -29,6 +27,7 @@ use spin::Mutex;
 use timer::DEFAULT_TIMER;
 
 pub mod clock;
+pub mod image_data;
 pub mod paint;
 pub mod spi0;
 pub mod timer;
@@ -43,6 +42,7 @@ static ALLOCATOR: DLMalloc = DLMalloc;
 
 lazy_static::lazy_static! {
     static ref BLACK_IMAGE: Mutex<[u8; FRAMEBUFFER_SIZE]> = Mutex::new([0xFF; FRAMEBUFFER_SIZE]); // Initialize with white (0xFF)
+    static ref PAINT_IMAGE: Mutex<[u8; FRAMEBUFFER_SIZE]> = Mutex::new([0xFF; FRAMEBUFFER_SIZE]); // Initialize with white (0xFF)
 }
 
 // Struct for EPD
@@ -51,7 +51,7 @@ pub struct Epd2in13V4 {
     epd_rst_pin: Mutex<Pin<Gpio12, FunctionSio<SioOutput>, PullDown>>,
     epd_busy_pin: Mutex<Pin<Gpio13, FunctionSio<SioInput>, PullNone>>,
     epd_cs_pin: Mutex<Pin<Gpio9, FunctionSio<SioOutput>, PullDown>>,
-    pub heartbeat: Mutex<Pin<Gpio1, FunctionSio<SioOutput>, PullDown>>,
+    pub heartbeat: Option<Mutex<Pin<Gpio1, FunctionSio<SioOutput>, PullDown>>>, // Make heartbeat optional
     spi_bus: Mutex<
         Spi<
             Enabled,
@@ -62,6 +62,7 @@ pub struct Epd2in13V4 {
             ),
         >,
     >,
+    paint: Mutex<Paint<'static>>,
 }
 
 impl<'a> Epd2in13V4 {
@@ -70,7 +71,7 @@ impl<'a> Epd2in13V4 {
         epd_rst_pin: Mutex<Pin<Gpio12, FunctionSio<SioOutput>, PullDown>>,
         epd_busy_pin: Mutex<Pin<Gpio13, FunctionSio<SioInput>, PullNone>>,
         epd_cs_pin: Mutex<Pin<Gpio9, FunctionSio<SioOutput>, PullDown>>,
-        heartbeat: Mutex<Pin<Gpio1, FunctionSio<SioOutput>, PullDown>>,
+        heartbeat: Option<Mutex<Pin<Gpio1, FunctionSio<SioOutput>, PullDown>>>, // Accept Option for heartbeat
         spi_bus: Mutex<
             Spi<
                 Enabled,
@@ -82,6 +83,15 @@ impl<'a> Epd2in13V4 {
             >,
         >,
     ) -> Self {
+        let paint_image = PAINT_IMAGE.lock();
+        let paint = Paint::new_image(
+            unsafe { &mut *(paint_image.as_ptr() as *mut [u8; FRAMEBUFFER_SIZE]) },
+            EPD_2IN13_V4_WIDTH,
+            EPD_2IN13_V4_HEIGHT,
+            Rotate0,
+            0xFF,
+        );
+
         Self {
             epd_dc_pin,
             epd_rst_pin,
@@ -89,6 +99,7 @@ impl<'a> Epd2in13V4 {
             epd_cs_pin,
             heartbeat,
             spi_bus,
+            paint: Mutex::new(paint),
         }
     }
 
@@ -154,9 +165,9 @@ impl<'a> Epd2in13V4 {
         let mut spi_bus = self.spi_bus.lock();
         if spi_bus.write(&[byte]).is_ok() {
             // Successfully sent byte
-        } else {
+        } else if let Some(ref heartbeat) = self.heartbeat {
             // Rapidly flash "heartbeat" LED to indicate error
-            let mut heartbeat = self.heartbeat.lock();
+            let mut heartbeat = heartbeat.lock();
             let mut timer = DEFAULT_TIMER.get().unwrap().lock();
             loop {
                 heartbeat.set_high().unwrap();
@@ -264,23 +275,23 @@ impl<'a> Epd2in13V4 {
 
     fn set_windows(&self, x_start: u8, y_start: u8, x_end: u8, y_end: u8) {
         self.send_command(0x44); // Set RAM X-address Start/End position
-        self.send_data(x_start >> 3);
-        self.send_data(x_end >> 3);
+        self.send_data((x_start >> 3) & 0xFF); // Divide by 8 for byte alignment and mask with 0xFF
+        self.send_data((x_end >> 3) & 0xFF); // Divide by 8 for byte alignment and mask with 0xFF
 
         self.send_command(0x45); // Set RAM Y-address Start/End position
-        self.send_data((y_start as u16 >> 8) as u8 & 0xFF);
-        self.send_data((y_start as u16 & 0xFF) as u8);
-        self.send_data((y_end as u16 >> 8) as u8 & 0xFF);
-        self.send_data((y_end as u16 & 0xFF) as u8);
+        self.send_data((y_start as u16 & 0xFF) as u8); // Low byte
+        self.send_data((y_start as u16 >> 8) as u8 & 0xFF); // High byte
+        self.send_data((y_end as u16 & 0xFF) as u8); // Low byte
+        self.send_data((y_end as u16 >> 8) as u8 & 0xFF); // High byte
     }
 
     fn set_cursor(&self, x: u8, y: u8) {
         self.send_command(0x4E); // SET_RAM_X_ADDRESS_COUNTER
-        self.send_data(x);
+        self.send_data(x >> 3); // Divide by 8 for byte alignment
 
         self.send_command(0x4F); // SET_RAM_Y_ADDRESS_COUNTER
-        self.send_data((y & 0xFF) as u8);
-        self.send_data(((y.wrapping_shr(8)) & 0xFF) as u8);
+        self.send_data((y & 0xFF) as u8); // Low byte
+        self.send_data(((y.wrapping_shr(8)) & 0xFF) as u8); // High byte
     }
 
     pub fn create_black_image_cache(&self) -> Result<&'static mut [u8], &'static str> {
@@ -330,21 +341,61 @@ impl<'a> Epd2in13V4 {
     }
 
     pub fn display_predefined_image(&self) {
-        let width = (EPD_2IN13_V4_WIDTH + 7) / 8;
-        let height = EPD_2IN13_V4_HEIGHT;
+        let mut paint = self.paint.lock();
+        paint.paint_clear_color(0xFF);
+        paint.draw_bitmap(&G_IMAGE_2IN13_2); // Use the new draw_bitmap method
+        self.display_image(paint.image); // Display the updated image
+    }
 
-        self.send_command(0x24); // Write Black and White image to RAM
-        for j in 0..height {
-            for i in 0..width {
-                self.send_data(paint::G_IMAGE_2IN13_2[i + j * width]);
-            }
-        }
+    pub fn show_toaster(&self) {
+        let mut paint = self.paint.lock();
+        paint.paint_clear_color(0xFF); // Clear the paint with white
+        paint.draw_bitmap(&ROOSTER); // Draw the BOYKISSER bitmap
+        self.display_image(paint.image); // Display the updated image
+    }
 
-        self.turn_on_display(); // Trigger display update
+    pub fn show_bk1(&self) {
+        let mut paint = self.paint.lock();
+        paint.paint_clear_color(0xFF); // Clear the paint with white
+        paint.draw_bitmap(&BOYKISSER1); // Draw the BOYKISSER bitmap
+        self.display_image(paint.image); // Display the updated image
+    }
+
+    pub fn show_bk2(&self) {
+        let mut paint = self.paint.lock();
+        paint.paint_clear_color(0xFF); // Clear the paint with white
+        paint.draw_bitmap(&BOYKISSER2); // Draw the BOYKISSER bitmap
+        self.display_image(paint.image); // Display the updated image
+    }
+
+    pub fn show_bk3(&self) {
+        let mut paint = self.paint.lock();
+        paint.paint_clear_color(0xFF); // Clear the paint with white
+        paint.draw_bitmap(&BOYKISSER3); // Draw the BOYKISSER bitmap
+        self.display_image(paint.image); // Display the updated image
+    }
+
+    pub fn show_bk4(&self) {
+        let mut paint = self.paint.lock();
+        paint.paint_clear_color(0xFF); // Clear the paint with white
+        paint.draw_bitmap(&BOYKISSER4); // Draw the BOYKISSER bitmap
+        self.display_image(paint.image); // Display the updated image
     }
 
     pub fn test(&self) {
-        let predefined_image = paint::G_IMAGE_2IN13_2; // Retrieve the predefined image
+        let predefined_image = G_IMAGE_2IN13_2; // Retrieve the predefined image
         self.display_fast(&predefined_image); // Use fast refresh to display the image
+
+        // let mut paint = Paint::new_image(
+        //     Paint::get_image(),
+        //     EPD_2IN13_V4_WIDTH,
+        //     EPD_2IN13_V4_HEIGHT,
+        //     Rotate0,
+        //     0xFF,
+        //     2
+        // );
+        // paint.paint_clear_color(0xFF);
+        // paint.paint_black_screen(); // Use the new draw_bitmap method
+        // self.display_image(paint.image); // Display the updated image
     }
 }

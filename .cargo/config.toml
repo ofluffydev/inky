@@ -23,6 +23,7 @@ rrr-blinky = "run-riscv --release --bin=blinky"
 [build]
 # Set the default target to match the Cortex-M33 in the RP2350
 target = "thumbv8m.main-none-eabihf"
+rustflags = ["--cfg", "feature=\"rp235x\""]
 
 # This is the hard-float ABI for Arm mode.
 #
