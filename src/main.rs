@@ -13,7 +13,6 @@
     BUSY 	    GP13 	        Busy output pin
 */
 
-
 use hal::{
     Timer,
     binary_info::{
@@ -109,18 +108,18 @@ fn main() -> ! {
     timer.delay_ms(1000); // Wait for 1 second
 
     // let mut heartbeat = display.heartbeat.lock();
-    // loop {
-    //     display.show_bk1();
-    //     timer.delay_ms(500);
-    //     display.show_bk2();
-    //     timer.delay_ms(500);
-    //     display.show_bk3();
-    //     timer.delay_ms(500);
-    //     display.show_bk4();
-    //     timer.delay_ms(500);
-    // }
-
-    display.show_toaster();
+    loop {
+        display.show_bk1();
+        timer.delay_ms(500);
+        display.show_bk2();
+        timer.delay_ms(500);
+        display.show_bk3();
+        timer.delay_ms(500);
+        display.show_bk4();
+        timer.delay_ms(500);
+        display.show_toaster();
+        timer.delay_ms(500);
+    }
 
     loop {}
 }
